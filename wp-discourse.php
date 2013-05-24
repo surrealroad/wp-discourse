@@ -71,6 +71,10 @@ class Discourse {
     add_filter('comments_number', array($this,'comments_number'));
     add_filter('comments_template', array($this,'comments_template'));
 
+    $plugin_dir = plugin_dir_url(__FILE__);
+    wp_register_style('discourse_comments', $plugin_dir . 'css/style.css');
+    wp_enqueue_style('discourse_comments');
+
 	}
 
   function comments_number($count) {
@@ -159,13 +163,13 @@ class Discourse {
 
     add_action( 'post_submitbox_misc_actions', array($this,'publish_to_discourse'));
     add_action( 'save_post', array($this, 'save_postdata'));
-    add_action ( 'transition_post_status', array($this, 'post_status_changed'), 10, 3 );
+    add_action( 'publish_post', array($this, 'publish_post_to_discourse'));
   }
 
-  function post_status_changed($old, $new, $post){
-    if($post->post_type == "revision") { return; }
-    if($new == 'publish' && get_post_meta($post->ID, 'publish_to_discourse', true) == 1) {
-      self::sync_to_discourse($post->ID, $post->post_title, $post->post_content);
+  function publish_post_to_discourse($postid){
+    $post = get_post($postid);
+    if (get_post_status($postid) == "publish" && get_post_meta($postid, 'publish_to_discourse', true)) {
+      self::sync_to_discourse($postid, $post->post_title, $post->post_content);
     }
   }
 
@@ -190,7 +194,7 @@ class Discourse {
   function sync_to_discourse($postid, $title, $raw) {
     $discourse_id = get_post_meta($postid, 'discourse_post_id', true);
     $options = get_option('discourse');
-    $post = get_post($post_id);
+    $post = get_post($postid);
 
 
     $excerpt = apply_filters('the_content', $raw);
@@ -258,9 +262,15 @@ class Discourse {
   {
     global $post;
     $value = get_post_meta($post->ID, 'publish_to_discourse', true);
+    if ($value == NULL) {
+      $options = get_option('discourse');
+      if(isset($options['auto-publish'])) {
+        $value = ($options['auto-publish'] == 1);
+      }
+    }
     echo '<div class="misc-pub-section misc-pub-section-last">
          <span>'
-         . '<label><input type="checkbox"' . (!empty($value) ? ' checked="checked" ' : null) . 'value="1" name="publish_to_discourse" /> Publish to Discourse</label>'
+         . '<label><input type="checkbox"' . ($value ? ' checked="checked" ' : null) . 'value="1" name="publish_to_discourse" /> Publish to Discourse</label>'
     .'</span></div>';
   }
 
