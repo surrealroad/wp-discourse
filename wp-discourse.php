@@ -168,38 +168,20 @@ class Discourse {
 
 
     add_action( 'post_submitbox_misc_actions', array($this,'publish_to_discourse'));
+    add_action( 'game_submitbox_misc_actions', array($this,'publish_to_discourse'));
     add_action( 'save_post', array($this, 'save_postdata'));
+    add_action( 'save_game', array($this, 'save_postdata'));
     add_action( 'publish_post', array($this, 'publish_post_to_discourse'));
+    add_action( 'publish_game', array($this, 'publish_post_to_discourse'));
   }
 
   function publish_post_to_discourse($postid){
     $post = get_post($postid);
-    if (get_post_status($postid) == "publish" && get_post_meta($postid, 'publish_to_discourse', true) && !self::is_custom_post_type($postid)) {
+    if (get_post_status($postid) == "publish" && get_post_meta($postid, 'publish_to_discourse', true)) {
       self::sync_to_discourse($postid, $post->post_title, $post->post_content);
     }
   }
   
-  function is_custom_post_type( $post = NULL ){
-    $all_custom_post_types = get_post_types( array ( '_builtin' => FALSE ) );
-
-    // there are no custom post types
-    if ( empty ( $all_custom_post_types ) )
-        return FALSE;
-
-    $custom_types      = array_keys( $all_custom_post_types );
-    $current_post_type = get_post_type( $post );
-
-    // could not detect current type
-    if ( ! $current_post_type )
-        return FALSE;
-        
-    // allow "game" post type
-    if ( $current_post_type == "game" )
-        return FALSE;
-
-    return in_array( $current_post_type, $custom_types );
-  }
-
   function save_postdata($postid)
   {
     if ( !current_user_can( 'edit_page', $postid ) ) return $postid;
@@ -220,6 +202,7 @@ class Discourse {
   }
 
   function sync_to_discourse($postid, $title, $raw) {
+    
     $discourse_id = get_post_meta($postid, 'discourse_post_id', true);
     $options = get_option('discourse');
     $post = get_post($postid);
@@ -250,6 +233,8 @@ class Discourse {
       $context  = stream_context_create($soptions);
       $result = file_get_contents($url, false, $context);
       $json = json_decode($result);
+      
+      //wp_mail( 'jack@ctrlcmdesc.com', $title, $result );
 
       #todo may have $json->errors with list of errors
 
