@@ -23,7 +23,13 @@ Author URI: http://www.discourse.org
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 */
 class Discourse {
+	public static function homepage($url, $post) {
+	echo $url . "/users/" . strtolower($post->username);
+	}
 
+	public static function avatar($template, $size) {
+	echo str_replace("{size}", $size, $template);
+	}
 	var $domain = 'discourse';
 
 	//Version
@@ -168,9 +174,26 @@ class Discourse {
 
   function publish_post_to_discourse($postid){
     $post = get_post($postid);
-    if (get_post_status($postid) == "publish" && get_post_meta($postid, 'publish_to_discourse', true)) {
+    if (get_post_status($postid) == "publish" && get_post_meta($postid, 'publish_to_discourse', true) && !self::is_custom_post_type($postid)) {
       self::sync_to_discourse($postid, $post->post_title, $post->post_content);
     }
+  }
+  
+  function is_custom_post_type( $post = NULL ){
+    $all_custom_post_types = get_post_types( array ( '_builtin' => FALSE ) );
+
+    // there are no custom post types
+    if ( empty ( $all_custom_post_types ) )
+        return FALSE;
+
+    $custom_types      = array_keys( $all_custom_post_types );
+    $current_post_type = get_post_type( $post );
+
+    // could not detect current type
+    if ( ! $current_post_type )
+        return FALSE;
+
+    return in_array( $current_post_type, $custom_types );
   }
 
   function save_postdata($postid)
@@ -178,7 +201,7 @@ class Discourse {
     if ( !current_user_can( 'edit_page', $postid ) ) return $postid;
     if(empty($postid) || !isset($_POST['publish_to_discourse'])) return $postid;
 
-    # trust me ... word press is crazy like this, try changing a title.
+    # trust me ... WordPress is crazy like this, try changing a title.
     if(!isset($_POST['ID'])) return $postid;
 
     if($_POST['action'] == 'editpost'){
@@ -186,6 +209,7 @@ class Discourse {
     }
 
     $publish = $_POST['publish_to_discourse'];
+
     add_post_meta($_POST['ID'], 'publish_to_discourse', $publish, true);
 
     return $postid;
@@ -209,8 +233,8 @@ class Discourse {
       'api_key' => $options['api-key'],
       'api_username' => $options['publish-username'],
       'title' => $title,
-      'post[raw]' => $baked,
-      'post[category]' => $options['publish-category']
+      'raw' => $baked,
+      'category' => $options['publish-category']
     );
 
 
@@ -261,13 +285,14 @@ class Discourse {
   function publish_to_discourse()
   {
     global $post;
-    $value = get_post_meta($post->ID, 'publish_to_discourse', true);
-    if ($value == NULL) {
-      $options = get_option('discourse');
-      if(isset($options['auto-publish'])) {
-        $value = ($options['auto-publish'] == 1);
-      }
+
+    $options = get_option('discourse');
+    if($post->post_status=="auto-draft") {
+      $value = $options['auto-publish'];
+    } else {
+      $value = get_post_meta($post->ID, 'publish_to_discourse', true);
     }
+
     echo '<div class="misc-pub-section misc-pub-section-last">
          <span>'
          . '<label><input type="checkbox"' . ($value ? ' checked="checked" ' : null) . 'value="1" name="publish_to_discourse" /> Publish to Discourse</label>'
