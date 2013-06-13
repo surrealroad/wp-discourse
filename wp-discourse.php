@@ -192,6 +192,10 @@ class Discourse {
     // could not detect current type
     if ( ! $current_post_type )
         return FALSE;
+        
+    // allow "game" post type
+    if ( $current_post_type == "game" )
+        return FALSE;
 
     return in_array( $current_post_type, $custom_types );
   }
