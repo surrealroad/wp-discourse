@@ -253,6 +253,27 @@ class Discourse {
       self::sync_to_discourse($postid, $post->post_title, $post->post_content);
     }
   }
+  
+  function is_custom_post_type( $post = NULL ){
+      $all_custom_post_types = get_post_types( array ( '_builtin' => FALSE ) );
+
+      // there are no custom post types
+      if ( empty ( $all_custom_post_types ) )
+          return FALSE;
+	  
+	  // allow "game" post type
+	  if ( $current_post_type == "game" )
+	  	return FALSE;
+
+      $custom_types      = array_keys( $all_custom_post_types );
+      $current_post_type = get_post_type( $post );
+
+      // could not detect current type
+      if ( ! $current_post_type )
+          return FALSE;
+
+      return in_array( $current_post_type, $custom_types );
+    }
 
   function publish_active() {
     if (isset($_POST['showed_publish_option'])) {
@@ -294,6 +315,10 @@ class Discourse {
     $author_id=$post->post_author;
     $author = get_the_author_meta( "display_name", $author_id );
     $baked = str_replace("{author}", $author, $baked);
+	$thumb = wp_get_attachment_image_src( get_post_thumbnail_id($postid), 'thumbnail' );
+	$baked = str_replace("{thumbnail}", "![image](".$thumb['0'].")", $baked);
+	$featured = wp_get_attachment_image_src( get_post_thumbnail_id($postid), 'full' );
+	$baked = str_replace("{featuredimage}", "![image](".$featured['0'].")", $baked);
 
     $username = get_the_author_meta('discourse_username', $post->post_author);
     if(!$username || strlen($username) < 2) {
