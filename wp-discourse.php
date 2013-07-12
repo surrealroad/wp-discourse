@@ -234,7 +234,7 @@ class Discourse {
       $result = file_get_contents($url, false, $context);
       $json = json_decode($result);
       
-      //wp_mail( 'jack@ctrlcmdesc.com', $title, $result );
+      //wp_mail( 'jack@ctrlcmdesc.com', $title, "result:".$result );
 
       #todo may have $json->errors with list of errors
 
