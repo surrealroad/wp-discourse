@@ -14,14 +14,6 @@
   } else {
     $more_replies = $more_replies . " more replies";
   }
-
-  function homepage($url, $post) {
-    echo $url . "/users/" . strtolower($post->username);
-  }
-
-  function avatar($template, $size) {
-    echo str_replace("{size}", $size, $template);
-  }
 ?>
 
 <?php # var_dump($discourse_info->posts) ?>
@@ -37,10 +29,10 @@
 		<ul class="commentlist">
       <?php foreach($discourse_info->posts as &$post) { ?>
 <section class="comment media shadowed">
-<div class="pull-left media-object"><img alt="" src="<?php avatar($post->avatar_template,68) ?>" class="avatar avatar-68 photo avatar-default" height="68" width="68"></div>
+<div class="pull-left media-object"><img alt="" src="<?php Discourse::avatar($post->avatar_template,68) ?>" class="avatar avatar-68 photo avatar-default" height="68" width="68"></div>
 <div class="media-body">
 <header class="media-heading"><h4>
-<a href="<?php homepage($options['url'],$post); ?>" rel="external" class="url"><?php echo $post->username; ?></a>
+<a href="<?php Discourse::homepage($options['url'],$post); ?>" rel="external" class="url"><?php echo $post->username; ?></a>
 </h4></header>
 <div class="content"><?php echo $post->cooked; //var_dump($post);?></div>
 <div class="comment-meta commentmetadata">
@@ -66,7 +58,7 @@
         <p class='more-replies'><?php echo $more_replies ?></p>
         <p>
           <?php foreach($discourse_info->participants as &$participant) { ?>
-            <img alt="" src="<?php avatar($participant->avatar_template,25) ?>" class="avatar avatar-25 photo avatar-default" height="25" width="25">
+            <img alt="" src="<?php Discourse::avatar($participant->avatar_template,25) ?>" class="avatar avatar-25 photo avatar-default" height="25" width="25">
           <?php } ?>
         </p>
         <?php } ?>						

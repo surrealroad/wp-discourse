@@ -46,7 +46,14 @@ class Discourse {
     'max-comment'=>5,
     'use-discourse-comments'=>0,
     'use-fullname-in-comments'=>1,
-    'publish-format'=>'<small>Originally published at: {blogurl}</small><br>{excerpt}'
+    'publish-format'=>'<small>Originally published at: {blogurl}</small><br>{excerpt}',
+    'min-score'=>30,
+    'min-replies'=>5,
+    'min-trust-level'=>1,
+    'custom-comments-title'=>'',
+    'bypass-trust-level-score'=>50,
+    'debug-mode'=>0,
+    'only-show-moderator-liked'=>0
 	);
 
 	public function __construct() {
@@ -81,11 +88,15 @@ class Discourse {
     wp_register_style('discourse_comments', $plugin_dir . 'css/style.css');
     wp_enqueue_style('discourse_comments');
 
+    add_action( 'save_post', array($this, 'save_postdata'));
+    add_action( 'xmlrpc_publish_post', array($this, 'xmlrpc_publish_post_to_discourse'));
+    add_action( 'publish_post', array($this, 'publish_post_to_discourse'));
+    add_action( 'save_game', array($this, 'save_postdata'));
+    add_action( 'xmlrpc_publish_game', array($this, 'xmlrpc_publish_post_to_discourse'));
+    add_action( 'publish_game', array($this, 'publish_post_to_discourse'));
 	}
 
   function comments_number($count) {
-
-
     global $post;
     if(self::use_discourse_comments($post->ID)){
       self::sync_comments($post->ID);
@@ -101,38 +112,72 @@ class Discourse {
   }
 
   function use_discourse_comments($postid){
-    return get_post_meta($postid, 'publish_to_discourse', true) == 1 &&
-      get_post_meta($postid, 'discourse_post_id', true) > 0;
+    // we may have a missing "publish_to_discourse" ... if it is missing AND
+    //  the post is 7 days or younger, just publish it
+    //
+    // note: codex api says get_post_meta will return "" if the setting is missing
+    //  tested and it is the case
+
+    $setting = get_post_meta($postid, 'publish_to_discourse', true);
+    $a_week = 604800;
+    return $setting == "1" || ($setting == "" && (time() - get_the_time('U',$postid)) < $a_week) ;
   }
 
   function sync_comments($postid) {
     global $wpdb;
+    $discourse_options =  get_option('discourse');
 
     # every 10 minutes do a json call to sync comment count and top comments
     $last_sync = (int)get_post_meta($postid, 'discourse_last_sync', true);
     $time = date_timestamp_get(date_create());
-    if($last_sync + 60 * 10 < $time) {
+    $debug = isset($discourse_options['debug-mode']) && intval($discourse_options['debug-mode']) == 1;
+    if($debug || $last_sync + 60 * 10 < $time) {
 
       $got_lock = $wpdb->get_row( "SELECT GET_LOCK('discourse_lock', 0) got_it");
       if($got_lock->got_it == "1") {
 
-        $discourse_options =  get_option('discourse');
-        $comment_count = intval($discourse_options['max-comments']);
-        $permalink = (string)get_post_meta($postid, 'discourse_permalink', true) . '.json?best=' . $comment_count;
-        $soptions = array('http' => array('ignore_errors' => true, 'method'  => 'GET'));
-        $context  = stream_context_create($soptions);
-        $result = file_get_contents($permalink, false, $context);
-        $json = json_decode($result);
+        if(get_post_status($postid) == "publish") {
 
-        delete_post_meta($postid, 'discourse_comments_count');
-        add_post_meta($postid, 'discourse_comments_count', $json->posts_count - 1 , true);
+          # workaround unpublished posts, publish if needed
+          # if you have a scheduled post we never seem to be called
+          if(!(get_post_meta($postid, 'discourse_post_id', true) > 0)){
+            self::publish_post_to_discourse($postid);
+          }
 
-        delete_post_meta($postid, 'discourse_comments_raw');
+          $comment_count = intval($discourse_options['max-comments']);
+          $min_trust_level = intval($discourse_options['min-trust-level']);
+          $min_score = intval($discourse_options['min-score']);
+          $min_replies = intval($discourse_options['min-replies']);
+          $bypass_trust_level_score = intval($discourse_options['bypass-trust-level-score']);
 
-        add_post_meta($postid, 'discourse_comments_raw', $wpdb->escape($result) , true);
+          $options = 'best=' . $comment_count . '&min_trust_level=' . $min_trust_level . '&min_score=' . $min_score;
+          $options = $options . '&min_replies=' . $min_replies . '&bypass_trust_level_score=' . $bypass_trust_level_score;
 
-        delete_post_meta($postid, 'discourse_last_sync');
-        add_post_meta($postid, 'discourse_last_sync', $time, true);
+          if (isset($discourse_options['only-show-moderator-liked']) && intval($discourse_options['only-show-moderator-liked']) == 1) {
+            $options = $options . "&only_moderator_liked=true";
+          }
+
+          $permalink = (string)get_post_meta($postid, 'discourse_permalink', true) . '/wordpress.json?' . $options;
+          $soptions = array('http' => array('ignore_errors' => true, 'method'  => 'GET'));
+          $context  = stream_context_create($soptions);
+          $result = file_get_contents($permalink, false, $context);
+          $json = json_decode($result);
+
+          $posts_count = $json->posts_count - 1;
+          if ($posts_count < 0) {
+            $posts_count = 0;
+          }
+
+          delete_post_meta($postid, 'discourse_comments_count');
+          add_post_meta($postid, 'discourse_comments_count', $posts_count, true);
+
+          delete_post_meta($postid, 'discourse_comments_raw');
+
+          add_post_meta($postid, 'discourse_comments_raw', $wpdb->escape($result) , true);
+
+          delete_post_meta($postid, 'discourse_last_sync');
+          add_post_meta($postid, 'discourse_last_sync', $time, true);
+        }
         $wpdb->get_results("SELECT RELEASE_LOCK('discourse_lock')");
       }
     }
@@ -166,26 +211,61 @@ class Discourse {
     add_settings_field('discourse_max_comments', 'Max visible comments', array($this, 'max_comments_input'), 'discourse', 'default_discourse');
     add_settings_field('discourse_use_fullname_in_comments', 'Full name in comments', array($this, 'use_fullname_in_comments_checkbox'), 'discourse', 'default_discourse');
 
+    add_settings_field('discourse_min_replies', 'Min number of replies', array($this, 'min_replies_input'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_min_score', 'Min score of posts', array($this, 'min_score_input'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_min_trust_level', 'Min trust level', array($this, 'min_trust_level_input'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_bypass_trust_level_score', 'Bypass trust level score', array($this, 'bypass_trust_level_input'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_custom_comment_title', 'Custom comments title', array($this, 'custom_comment_input'), 'discourse', 'default_discourse');
+
+    add_settings_field('discourse_debug_mode', 'Debug mode', array($this, 'debug_mode_checkbox'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_only_show_moderator_liked', 'Only import comments liked by a moderator', array($this, 'only_show_moderator_liked_checkbox'), 'discourse', 'default_discourse');
 
     add_action( 'post_submitbox_misc_actions', array($this,'publish_to_discourse'));
-    add_action( 'game_submitbox_misc_actions', array($this,'publish_to_discourse'));
-    add_action( 'save_post', array($this, 'save_postdata'));
-    add_action( 'save_game', array($this, 'save_postdata'));
-    add_action( 'publish_post', array($this, 'publish_post_to_discourse'));
-    add_action( 'publish_game', array($this, 'publish_post_to_discourse'));
+
+
+    add_filter('user_contactmethods', array($this, 'extend_user_profile'), 10, 1);
+  }
+
+  function extend_user_profile($fields) {
+    $fields['discourse_username'] = 'Discourse Username';
+    return $fields;
   }
 
   function publish_post_to_discourse($postid){
     $post = get_post($postid);
-    if (get_post_status($postid) == "publish" && get_post_meta($postid, 'publish_to_discourse', true)) {
+    if (  get_post_status($postid) == "publish" &&
+          self::use_discourse_comments($postid)
+       ) {
+
+      // This seems a little redundant after `save_postdata` but when using the Press This
+      // widget it updates the field as it should.
+      add_post_meta($postid, 'publish_to_discourse', "1", true);
+
       self::sync_to_discourse($postid, $post->post_title, $post->post_content);
     }
   }
-  
+
+  // When publishing by xmlrpc, ignore the `publish_to_discourse` option
+  function xmlrpc_publish_post_to_discourse($postid){
+    $post = get_post($postid);
+    if (get_post_status($postid) == "publish" && !self::is_custom_post_type($postid)) {
+      add_post_meta($postid, 'publish_to_discourse', "1", true);
+      self::sync_to_discourse($postid, $post->post_title, $post->post_content);
+    }
+  }
+
+  function publish_active() {
+    if (isset($_POST['showed_publish_option'])) {
+      return $_POST['publish_to_discourse'] == "1";
+    } else {
+      return true;
+    }
+  }
+
   function save_postdata($postid)
   {
     if ( !current_user_can( 'edit_page', $postid ) ) return $postid;
-    if(empty($postid) || !isset($_POST['publish_to_discourse'])) return $postid;
+    if(empty($postid)) return $postid;
 
     # trust me ... WordPress is crazy like this, try changing a title.
     if(!isset($_POST['ID'])) return $postid;
@@ -194,15 +274,12 @@ class Discourse {
         delete_post_meta($_POST['ID'], 'publish_to_discourse');
     }
 
-    $publish = $_POST['publish_to_discourse'];
-
-    add_post_meta($_POST['ID'], 'publish_to_discourse', $publish, true);
+    add_post_meta($_POST['ID'], 'publish_to_discourse', self::publish_active() ? "1" : "0", true);
 
     return $postid;
   }
 
   function sync_to_discourse($postid, $title, $raw) {
-    
     $discourse_id = get_post_meta($postid, 'discourse_post_id', true);
     $options = get_option('discourse');
     $post = get_post($postid);
@@ -214,14 +291,23 @@ class Discourse {
     $baked = $options['publish-format'];
     $baked = str_replace("{excerpt}", $excerpt, $baked);
     $baked = str_replace("{blogurl}", get_permalink($postid), $baked);
+    $author_id=$post->post_author;
+    $author = get_the_author_meta( "display_name", $author_id );
+    $baked = str_replace("{author}", $author, $baked);
+
+    $username = get_the_author_meta('discourse_username', $post->post_author);
+    if(!$username || strlen($username) < 2) {
+      $username = $options['publish-username'];
+    }
 
     $data = array(
       'wp-id' => $postid,
       'api_key' => $options['api-key'],
-      'api_username' => $options['publish-username'],
+      'api_username' => $username,
       'title' => $title,
       'raw' => $baked,
-      'category' => $options['publish-category']
+      'category' => $options['publish-category'],
+      'skip_validations' => 'true'
     );
 
 
@@ -233,8 +319,6 @@ class Discourse {
       $context  = stream_context_create($soptions);
       $result = file_get_contents($url, false, $context);
       $json = json_decode($result);
-      
-      //wp_mail( 'jack@ctrlcmdesc.com', $title, "result:".$result );
 
       #todo may have $json->errors with list of errors
 
@@ -284,7 +368,8 @@ class Discourse {
 
     echo '<div class="misc-pub-section misc-pub-section-last">
          <span>'
-         . '<label><input type="checkbox"' . ($value ? ' checked="checked" ' : null) . 'value="1" name="publish_to_discourse" /> Publish to Discourse</label>'
+         . '<input type="hidden" name="showed_publish_option" value="1">'
+         . '<label><input type="checkbox"' . (($value == "1") ? ' checked="checked" ' : null) . 'value="1" name="publish_to_discourse" /> Publish to Discourse</label>'
     .'</span></div>';
   }
 
@@ -302,7 +387,7 @@ class Discourse {
   }
 
   function publish_username_input(){
-    self::text_input('publish-username', 'Discourse username of publisher');
+    self::text_input('publish-username', 'Discourse username of publisher (will be overriden if Discourse Username is specified on user)');
   }
 
   function publish_category_input(){
@@ -331,6 +416,34 @@ class Discourse {
 
   function use_discourse_comments_checkbox(){
     self::checkbox_input('use-discourse-comments', 'Use Discourse to comment on Discourse published posts (hiding existing comment section)');
+  }
+
+  function min_replies_input(){
+    self::text_input('min-replies', 'Minimum replies required prior to pulling comments across');
+  }
+
+  function min_trust_level_input(){
+    self::text_input('min-trust-level', 'Minimum trust level required prior to pulling comments across (0-5)');
+  }
+
+  function min_score_input(){
+    self::text_input('min-score', 'Minimum score required prior to pulling comments across (score = 15 points per like, 5 per reply, 5 per incoming link, 0.2 per read)');
+  }
+
+  function custom_comment_input(){
+    self::text_input('custom-comments-title', 'Custom comments title (default: Notable Replies)');
+  }
+
+  function bypass_trust_level_input(){
+    self::text_input('bypass-trust-level-score', 'Bypass trust level check on posts with this score');
+  }
+
+  function debug_mode_checkbox(){
+    self::checkbox_input('debug-mode', '(always refresh comments)');
+  }
+
+  function only_show_moderator_liked_checkbox(){
+    self::checkbox_input('only-show-moderator-liked', 'Yes');
   }
 
   function checkbox_input($option, $description) {
