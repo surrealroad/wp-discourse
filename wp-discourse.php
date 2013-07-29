@@ -234,7 +234,8 @@ class Discourse {
   function publish_post_to_discourse($postid){
     $post = get_post($postid);
     if (  get_post_status($postid) == "publish" &&
-          self::use_discourse_comments($postid)
+          self::use_discourse_comments($postid) && 
+          self::is_valid_sync_post_type($postid)
        ) {
 
       // This seems a little redundant after `save_postdata` but when using the Press This
