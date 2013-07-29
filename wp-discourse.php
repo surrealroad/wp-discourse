@@ -248,23 +248,19 @@ class Discourse {
   // When publishing by xmlrpc, ignore the `publish_to_discourse` option
   function xmlrpc_publish_post_to_discourse($postid){
     $post = get_post($postid);
-    if (get_post_status($postid) == "publish" && self::is_valid_post_type($postid)) {
+    if (get_post_status($postid) == "publish" && self::is_valid_sync_post_type($postid)) {
       add_post_meta($postid, 'publish_to_discourse', "1", true);
       self::sync_to_discourse($postid, $post->post_title, $post->post_content);
     }
   }
   
-  function is_valid_post_type( $postid = NULL ){
+  function is_valid_sync_post_type( $postid = NULL ){
   	
-      if (is_single($postid)) return TRUE;
-      if (is_page($postid)) return TRUE;
-      
-      // check for valid custom post types
+      // is_single() etc. is not reliable
+      $allowed_post_types = array("post", "page", "game");
       $current_post_type = get_post_type( $postid );
-      // allow "game" post type
-      if ( $current_post_type == "game" ) return TRUE;
       
-      return FALSE;
+      return in_array( $current_post_type, $allowed_post_types );
     }
 
   function publish_active() {
