@@ -51,7 +51,7 @@
 	
     <div id="respond" class="comments-heading">
 <header class="section-header shadowed">
-        <h4 id="reply-title"><a href="<?php echo $permalink ?>"><i class="icon-arrow-right"></i> Continue the discussion at Control Command Escape Forums</a></h4>
+        <h4 id="reply-title"><a href="<?php echo $permalink ?>"><i class="icon-arrow-right"></i> Add your comments</a></h4>
 </header>
 </div>
         <?php if(count($discourse_info->posts) > 0) { ?>
