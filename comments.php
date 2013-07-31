@@ -18,7 +18,7 @@
 
 <?php # var_dump($discourse_info->posts) ?>
 
-<div class="comments span10">
+<div class="comments col-lg-12">
 <?php if(count($discourse_info->posts) > 0) { ?>
 <div class="comments-heading">
 <header class="section-header shadowed">
