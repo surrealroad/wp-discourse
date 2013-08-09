@@ -321,7 +321,8 @@ class Discourse {
       'title' => $title,
       'raw' => $baked,
       'category' => $options['publish-category'],
-      'skip_validations' => 'true'
+      'skip_validations' => 'true',
+      'auto_track' => ($options['auto-track'] == "1" ? 'true' : 'false')
     );
 
 
