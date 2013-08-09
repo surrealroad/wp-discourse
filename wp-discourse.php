@@ -425,6 +425,10 @@ class Discourse {
     self::checkbox_input('auto-publish', 'Publish all new posts to Discourse');
   }
 
+  function auto_track_checkbox(){
+    self::checkbox_input('auto-track', 'Author automatically tracks pulished Discourse topics');
+  }
+
   function auto_update_checkbox(){
     self::checkbox_input('auto-update', 'Update published blog posts on Discourse');
   }
