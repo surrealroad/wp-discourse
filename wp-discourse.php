@@ -43,6 +43,7 @@ class Discourse {
     'publish-category'=>'',
     'auto-publish'=>0,
     'auto-update'=>0,
+    'auto-track'=>1,
     'max-comment'=>5,
     'use-discourse-comments'=>0,
     'use-fullname-in-comments'=>1,
@@ -207,6 +208,8 @@ class Discourse {
     add_settings_field('discourse_publish_format', 'Publish format', array($this, 'publish_format_textarea'), 'discourse', 'default_discourse');
     add_settings_field('discourse_auto_publish', 'Auto Publish', array($this, 'auto_publish_checkbox'), 'discourse', 'default_discourse');
     add_settings_field('discourse_auto_update', 'Auto Update Posts', array($this, 'auto_update_checkbox'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_auto_track', 'Auto Track Published Topics', array($this, 'auto_track_checkbox'), 'discourse', 'default_discourse');
+
     add_settings_field('discourse_use_discourse_comments', 'Use Discourse Comments', array($this, 'use_discourse_comments_checkbox'), 'discourse', 'default_discourse');
     add_settings_field('discourse_max_comments', 'Max visible comments', array($this, 'max_comments_input'), 'discourse', 'default_discourse');
     add_settings_field('discourse_use_fullname_in_comments', 'Full name in comments', array($this, 'use_fullname_in_comments_checkbox'), 'discourse', 'default_discourse');
@@ -234,7 +237,7 @@ class Discourse {
   function publish_post_to_discourse($postid){
     $post = get_post($postid);
     if (  get_post_status($postid) == "publish" &&
-          self::use_discourse_comments($postid) && 
+          self::use_discourse_comments($postid) &&
           self::is_valid_sync_post_type($postid)
        ) {
 
@@ -254,13 +257,13 @@ class Discourse {
       self::sync_to_discourse($postid, $post->post_title, $post->post_content);
     }
   }
-  
+
   function is_valid_sync_post_type( $postid = NULL ){
-  	
+
       // is_single() etc. is not reliable
       $allowed_post_types = array("post", "page", "game");
       $current_post_type = get_post_type( $postid );
-      
+
       return in_array( $current_post_type, $allowed_post_types );
     }
 
@@ -289,7 +292,18 @@ class Discourse {
     return $postid;
   }
 
-  function sync_to_discourse($postid, $title, $raw) {
+  function sync_to_discourse($postid, $title, $raw){
+    global $wpdb;
+
+    // this avoids a double sync, just 1 is allowed to go through at a time
+    $got_lock = $wpdb->get_row( "SELECT GET_LOCK('discourse_sync_lock', 0) got_it");
+    if($got_lock) {
+      self::sync_to_discourse_work($postid, $title, $raw);
+      $wpdb->get_results("SELECT RELEASE_LOCK('discourse_sync_lock')");
+    }
+  }
+
+  function sync_to_discourse_work($postid, $title, $raw) {
     $discourse_id = get_post_meta($postid, 'discourse_post_id', true);
     $options = get_option('discourse');
     $post = get_post($postid);
@@ -298,16 +312,20 @@ class Discourse {
     $excerpt = apply_filters('the_content', $raw);
     $excerpt = wp_trim_words($excerpt);
 
+    if(function_exists('discourse_custom_excerpt')){
+        $excerpt = discourse_custom_excerpt($postid);
+    }
+
     $baked = $options['publish-format'];
     $baked = str_replace("{excerpt}", $excerpt, $baked);
     $baked = str_replace("{blogurl}", get_permalink($postid), $baked);
     $author_id=$post->post_author;
     $author = get_the_author_meta( "display_name", $author_id );
     $baked = str_replace("{author}", $author, $baked);
-	$thumb = wp_get_attachment_image_src( get_post_thumbnail_id($postid), 'thumbnail' );
-	$baked = str_replace("{thumbnail}", "![image](".$thumb['0'].")", $baked);
-	$featured = wp_get_attachment_image_src( get_post_thumbnail_id($postid), 'full' );
-	$baked = str_replace("{featuredimage}", "![image](".$featured['0'].")", $baked);
+    $thumb = wp_get_attachment_image_src( get_post_thumbnail_id($postid), 'thumbnail' );
+    $baked = str_replace("{thumbnail}", "![image](".$thumb['0'].")", $baked);
+    $featured = wp_get_attachment_image_src( get_post_thumbnail_id($postid), 'full' );
+    $baked = str_replace("{featuredimage}", "![image](".$featured['0'].")", $baked);
 
     $username = get_the_author_meta('discourse_username', $post->post_author);
     if(!$username || strlen($username) < 2) {
