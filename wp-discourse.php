@@ -54,7 +54,10 @@ class Discourse {
     'custom-comments-title'=>'',
     'bypass-trust-level-score'=>50,
     'debug-mode'=>0,
-    'only-show-moderator-liked'=>0
+    'only-show-moderator-liked'=>0,
+    'replies-html'=>'',
+    'no-replies-html' => '',
+    'comment-html' => '',
 	);
 
 	public function __construct() {
@@ -222,6 +225,10 @@ class Discourse {
 
     add_settings_field('discourse_debug_mode', 'Debug mode', array($this, 'debug_mode_checkbox'), 'discourse', 'default_discourse');
     add_settings_field('discourse_only_show_moderator_liked', 'Only import comments liked by a moderator', array($this, 'only_show_moderator_liked_checkbox'), 'discourse', 'default_discourse');
+
+    add_settings_field('discourse_template_replies', 'HTML Template to use when there are replies', array($this, 'template_replies_html'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_template_no_replies', 'HTML Template to use when there are no replies', array($this, 'template_no_replies_html'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_template_comment', 'HTML Template to use for each comment', array($this, 'template_comment_html'), 'discourse', 'default_discourse');
 
     add_action( 'post_submitbox_misc_actions', array($this,'publish_to_discourse'));
 
@@ -483,6 +490,18 @@ class Discourse {
     self::checkbox_input('only-show-moderator-liked', 'Yes');
   }
 
+  function template_replies_html(){
+    self::text_area('replies-html', 'HTML template to use when there are replies<br/>Available tags: ');
+  }
+
+  function template_no_replies_html(){
+    self::text_area('no-replies-html', 'HTML template to use when there are no replies<br/>Available tags: ');
+  }
+
+  function template_comment_html(){
+    self::text_area('comment-html', 'HTML template to use for each comment<br/>Available tags: ');
+  }
+
   function checkbox_input($option, $description) {
 
     $options = get_option( 'discourse' );
@@ -509,7 +528,7 @@ class Discourse {
     }
 
     ?>
-<input id='discourse_<?php echo $option?>' name='discourse[<?php echo $option?>]' type='text' value='<?php echo esc_attr( $value ); ?>' /> <?php echo $description ?>
+<input id='discourse_<?php echo $option?>' name='discourse[<?php echo $option?>]' type='text' value='<?php echo esc_textarea( $value ); ?>' /> <?php echo $description ?>
     <?php
 
   }
