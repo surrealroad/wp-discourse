@@ -2,11 +2,11 @@
 /*
 Plugin Name: WP-Discourse
 Description: Allows you to publish your posts to a Discourse instance and view top Discourse comments on your blog
-Version: 0.0.1
-Author: Sam Saffron
+Version: 0.5.5
+Author: Sam Saffron, Robin Ward
 Author URI: http://www.discourse.org
 */
-/*  Copyright 2011 Sam Saffron (sam.saffron@discourse.org)
+/*  Copyright 2013 Civilized Discourse Construction Kit, Inc (team@discourse.org)
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -24,11 +24,11 @@ Author URI: http://www.discourse.org
 */
 class Discourse {
 	public static function homepage($url, $post) {
-	echo $url . "/users/" . strtolower($post->username);
+	return $url . "/users/" . strtolower($post->username);
 	}
 
 	public static function avatar($template, $size) {
-	echo str_replace("{size}", $size, $template);
+	return str_replace("{size}", $size, $template);
 	}
 	var $domain = 'discourse';
 
@@ -46,18 +46,38 @@ class Discourse {
     'auto-track'=>1,
     'max-comment'=>5,
     'use-discourse-comments'=>0,
-    'use-fullname-in-comments'=>1,
     'publish-format'=>'<small>Originally published at: {blogurl}</small><br>{excerpt}',
     'min-score'=>30,
     'min-replies'=>5,
     'min-trust-level'=>1,
-    'custom-comments-title'=>'',
+    'custom-excerpt-length'=>'55',
     'bypass-trust-level-score'=>50,
     'debug-mode'=>0,
     'only-show-moderator-liked'=>0,
-    'replies-html'=>'',
-    'no-replies-html' => '',
-    'comment-html' => '',
+    'replies-html'=>'<div id="comments">
+	<h2 id="comments-title">Notable Replies</h2>
+	<ol class="commentlist">{comments}</ol>
+	<div class="respond">
+		<h3 class="reply-title"><a href="{topic_url}">Continue the discussion</a> at {discourse_url_name}</h3>
+		<p class="more-replies">{more_replies}</p>
+		<p>{participants}</p>
+	</div><!-- #respond -->
+</div>',
+    'no-replies-html' => '<div id="comments">
+	<div class="respond">
+		<h3 class="reply-title"><a href="{topic_url}">Start the discussion</a> at {discourse_url_name}</h3>
+	</div><!-- #respond -->
+</div>',
+    'comment-html' => '<li class="comment">
+	<div class="comment-author vcard">
+		<img alt="" src="{avatar_url}" class="avatar avatar-64 photo avatar-default" height="64" width="64">
+		<a href="{topic_url}" rel="external" class="url">{fullname}</a>
+		<br/>
+		<time pubdate="" datetime="{comment_created_at}">{comment_created_at}</time>
+	</div>
+	<div class="comment-content">{comment_body}</div>
+</li>',
+    'participant-html' => '<img alt="" src="{avatar_url}" class="avatar avatar-25 photo avatar-default" height="25" width="25"/>',
 	);
 
 	public function __construct() {
@@ -133,7 +153,7 @@ class Discourse {
 
     # every 10 minutes do a json call to sync comment count and top comments
     $last_sync = (int)get_post_meta($postid, 'discourse_last_sync', true);
-    $time = date_timestamp_get(date_create());
+    $time = date_create()->format('U');
     $debug = isset($discourse_options['debug-mode']) && intval($discourse_options['debug-mode']) == 1;
     if($debug || $last_sync + 60 * 10 < $time) {
 
@@ -215,13 +235,12 @@ class Discourse {
 
     add_settings_field('discourse_use_discourse_comments', 'Use Discourse Comments', array($this, 'use_discourse_comments_checkbox'), 'discourse', 'default_discourse');
     add_settings_field('discourse_max_comments', 'Max visible comments', array($this, 'max_comments_input'), 'discourse', 'default_discourse');
-    add_settings_field('discourse_use_fullname_in_comments', 'Full name in comments', array($this, 'use_fullname_in_comments_checkbox'), 'discourse', 'default_discourse');
 
     add_settings_field('discourse_min_replies', 'Min number of replies', array($this, 'min_replies_input'), 'discourse', 'default_discourse');
     add_settings_field('discourse_min_score', 'Min score of posts', array($this, 'min_score_input'), 'discourse', 'default_discourse');
     add_settings_field('discourse_min_trust_level', 'Min trust level', array($this, 'min_trust_level_input'), 'discourse', 'default_discourse');
     add_settings_field('discourse_bypass_trust_level_score', 'Bypass trust level score', array($this, 'bypass_trust_level_input'), 'discourse', 'default_discourse');
-    add_settings_field('discourse_custom_comment_title', 'Custom comments title', array($this, 'custom_comment_input'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_custom_excerpt_length', 'Custom excerpt length', array($this, 'custom_excerpt_length'), 'discourse', 'default_discourse');
 
     add_settings_field('discourse_debug_mode', 'Debug mode', array($this, 'debug_mode_checkbox'), 'discourse', 'default_discourse');
     add_settings_field('discourse_only_show_moderator_liked', 'Only import comments liked by a moderator', array($this, 'only_show_moderator_liked_checkbox'), 'discourse', 'default_discourse');
@@ -229,6 +248,7 @@ class Discourse {
     add_settings_field('discourse_template_replies', 'HTML Template to use when there are replies', array($this, 'template_replies_html'), 'discourse', 'default_discourse');
     add_settings_field('discourse_template_no_replies', 'HTML Template to use when there are no replies', array($this, 'template_no_replies_html'), 'discourse', 'default_discourse');
     add_settings_field('discourse_template_comment', 'HTML Template to use for each comment', array($this, 'template_comment_html'), 'discourse', 'default_discourse');
+    add_settings_field('discourse_participant_comment', 'HTML Template to use for each participant', array($this, 'template_participant_html'), 'discourse', 'default_discourse');
 
     add_action( 'post_submitbox_misc_actions', array($this,'publish_to_discourse'));
 
@@ -317,7 +337,11 @@ class Discourse {
 
 
     $excerpt = apply_filters('the_content', $raw);
-    $excerpt = wp_trim_words($excerpt);
+    $excerpt = wp_trim_words($excerpt, $options['custom-excerpt-length']);
+
+    if(function_exists('discourse_custom_excerpt')){
+        $excerpt = discourse_custom_excerpt($postid);
+    }
 
     if(function_exists('discourse_custom_excerpt')){
         $excerpt = discourse_custom_excerpt($postid);
@@ -442,10 +466,6 @@ class Discourse {
     self::text_input('max-comments', 'Maximum number of comments to display');
   }
 
-  function use_fullname_in_comments_checkbox(){
-    self::checkbox_input('use-fullname-in-comments', 'Use the users full name in blog comment section');
-  }
-
   function auto_publish_checkbox(){
     self::checkbox_input('auto-publish', 'Publish all new posts to Discourse');
   }
@@ -474,8 +494,8 @@ class Discourse {
     self::text_input('min-score', 'Minimum score required prior to pulling comments across (score = 15 points per like, 5 per reply, 5 per incoming link, 0.2 per read)');
   }
 
-  function custom_comment_input(){
-    self::text_input('custom-comments-title', 'Custom comments title (default: Notable Replies)');
+  function custom_excerpt_length(){
+    self::text_input('custom-excerpt-length', 'Custom excerpt length in words (default: 55)');
   }
 
   function bypass_trust_level_input(){
@@ -491,15 +511,19 @@ class Discourse {
   }
 
   function template_replies_html(){
-    self::text_area('replies-html', 'HTML template to use when there are replies<br/>Available tags: ');
+    self::text_area('replies-html', 'HTML template to use when there are replies<br/>Available tags: <small>{comments}, {discourse_url}, {discourse_url_name}, {topic_url}, {more_replies}, {participants}</small>');
   }
 
   function template_no_replies_html(){
-    self::text_area('no-replies-html', 'HTML template to use when there are no replies<br/>Available tags: ');
+    self::text_area('no-replies-html', 'HTML template to use when there are no replies<br/>Available tags: <small>{comments}, {discourse_url}, {discourse_url_name}, {topic_url}</small>');
   }
 
   function template_comment_html(){
-    self::text_area('comment-html', 'HTML template to use for each comment<br/>Available tags: ');
+    self::text_area('comment-html', 'HTML template to use for each comment<br/>Available tags: <small>{discourse_url}, {discourse_url_name}, {topic_url}, {avatar_url}, {user_url}, {username}, {fullname}, {comment_body}, {comment_created_at}, {comment_url}</small>');
+  }
+
+  function template_participant_html(){
+    self::text_area('participant-html', 'HTML template to use for each participant<br/>Available tags: <small>{discourse_url}, {discourse_url_name}, {topic_url}, {avatar_url}, {user_url}, {username}, {fullname}</small>');
   }
 
   function checkbox_input($option, $description) {
@@ -543,7 +567,7 @@ class Discourse {
     }
 
     ?>
-<textarea cols=100 rows=6 id='discourse_<?php echo $option?>' name='discourse[<?php echo $option?>]'><?php echo esc_attr( $value ); ?></textarea><br><?php echo $description ?>
+<textarea cols=100 rows=6 id='discourse_<?php echo $option?>' name='discourse[<?php echo $option?>]'><?php echo esc_textarea( $value ); ?></textarea><br><?php echo $description ?>
     <?php
 
   }
@@ -556,6 +580,9 @@ class Discourse {
   }
 
   function discourse_options_page() {
+  	if ( !current_user_can( 'manage_options' ) )  {
+		wp_die( __( 'You do not have sufficient permissions to access this page.' ) );
+	}
     ?>
     <div class="wrap">
         <h2>Discourse Options</h2>
