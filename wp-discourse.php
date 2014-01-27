@@ -343,10 +343,6 @@ class Discourse {
         $excerpt = discourse_custom_excerpt($postid);
     }
 
-    if(function_exists('discourse_custom_excerpt')){
-        $excerpt = discourse_custom_excerpt($postid);
-    }
-
     $baked = $options['publish-format'];
     $baked = str_replace("{excerpt}", $excerpt, $baked);
     $baked = str_replace("{blogurl}", get_permalink($postid), $baked);
